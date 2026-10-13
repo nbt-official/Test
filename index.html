@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sirasa TV - Live Stream</title>
+    <!-- HLS.js Library (Free & Open Source) -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .player-container {
+            width: 90%;
+            max-width: 800px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        h2 {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Sirasa TV Live Player</h2>
+
+    <div class="player-container">
+        <!-- Video Player Element -->
+        <video id="video" controls autoplay muted></video>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const videoSrc = 'https://str001.peotv.lk/ndrm/live/sirasa/master.m3u8';
+
+        if (Hls.isSupported()) {
+            const hls = new Hls();
+            hls.loadSource(videoSrc);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                video.play();
+            });
+        }
+        // Native HLS support for Safari (iOS / macOS)
+        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = videoSrc;
+            video.addEventListener('loadedmetadata', function() {
+                video.play();
+            });
+        } else {
+            alert('ඔබගේ Browser එක මගින් HLS stream Play කිරීම සහය නොදක්වයි.');
+        }
+    </script>
+
+</body>
+</html>
