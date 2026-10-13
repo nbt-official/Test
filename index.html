@@ -4,69 +4,218 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sirasa TV - Live Stream</title>
-    <!-- HLS.js Library (Free & Open Source) -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: Arial, sans-serif;
-            background-color: #121212;
-            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #fff;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            margin: 0;
+            padding: 20px;
+        }
+        h2 {
+            margin-bottom: 16px;
+            font-size: 22px;
+            font-weight: 600;
+            color: #e94560;
         }
         .player-container {
-            width: 90%;
-            max-width: 800px;
+            width: 100%;
+            max-width: 900px;
             background: #000;
-            border-radius: 8px;
+            border-radius: 14px;
             overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border: 1px solid #2a2a3a;
+            position: relative;
         }
         video {
             width: 100%;
             height: auto;
             display: block;
+            aspect-ratio: 16/9;
+            background: #000;
         }
-        h2 {
-            margin-bottom: 20px;
+        .player-status {
+            position: absolute; inset: 0; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            gap: 14px; text-align: center; padding: 24px;
+            background: rgba(0,0,0,0.75);
+            z-index: 10;
         }
+        .player-status.visible { display: flex; }
+        .player-status .msg { font-size: 15px; max-width: 400px; line-height: 1.5; color: #ddd; }
+        .player-status .spinner {
+            width: 44px; height: 44px; border-radius: 50%;
+            border: 4px solid rgba(255,255,255,0.2); border-top-color: #e94560;
+            animation: spin 0.9s linear infinite;
+        }
+        .player-status.error .spinner { display: none; }
+        .retry-btn {
+            display: none; padding: 10px 24px; border: none; border-radius: 10px;
+            background: #e94560; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+            transition: background 0.2s;
+        }
+        .retry-btn:hover { background: #ff5a75; }
+        .player-status.error .retry-btn { display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
 
-    <h2>Sirasa TV Live Player</h2>
+    <h2>Sirasa TV Live Stream</h2>
 
     <div class="player-container">
-        <!-- Video Player Element -->
-        <video id="video" controls autoplay muted></video>
+        <video id="video" controls playsinline webkit-playsinline></video>
+        <div class="player-status" id="playerStatus">
+            <div class="spinner"></div>
+            <div class="msg" id="playerMsg">Connecting to stream...</div>
+            <button class="retry-btn" id="retryBtn">Try again</button>
+        </div>
     </div>
 
+    <!-- HLS.js Library -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
     <script>
         const video = document.getElementById('video');
+        const statusEl = document.getElementById('playerStatus');
+        const statusMsg = document.getElementById('playerMsg');
+        const retryBtn = document.getElementById('retryBtn');
         const videoSrc = 'https://str001.peotv.lk/ndrm/live/sirasa/master.m3u8';
 
-        if (Hls.isSupported()) {
-            const hls = new Hls();
-            hls.loadSource(videoSrc);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.play();
-            });
-        }
-        // Native HLS support for Safari (iOS / macOS)
-        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = videoSrc;
-            video.addEventListener('loadedmetadata', function() {
-                video.play();
-            });
-        } else {
-            alert('ඔබගේ Browser එක මගින් HLS stream Play කිරීම සහය නොදක්වයි.');
-        }
-    </script>
+        let hls = null;
+        let netRetries = 0;
+        let mediaRetries = 0;
+        const MAX_NETWORK_RETRIES = 8;
+        const MAX_MEDIA_RETRIES = 3;
 
+        function showStatus(message, isError) {
+            statusMsg.textContent = message;
+            statusEl.classList.add('visible');
+            statusEl.classList.toggle('error', !!isError);
+        }
+
+        function hideStatus() {
+            statusEl.classList.remove('visible', 'error');
+        }
+
+        function startVideo() {
+            const p = video.play();
+            if (p && p.catch) {
+                p.catch(err => {
+                    if (err.name === 'NotAllowedError') {
+                        video.muted = true;
+                        video.play().catch(() => {});
+                    }
+                });
+            }
+        }
+
+        function initPlayer() {
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+
+            showStatus('Loading Sirasa TV...', false);
+
+            if (window.Hls && Hls.isSupported()) {
+                // ඔයා ඉල්ලපු ප්‍රවීණ HLS.js কনফিগারেশন එක මෙහි අන්තර්ගතයි
+                hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: false,
+                    manifestLoadingMaxRetry: 6,
+                    manifestLoadingRetryDelay: 800,
+                    manifestLoadingMaxRetryTimeout: 8000,
+                    levelLoadingMaxRetry: 6,
+                    levelLoadingRetryDelay: 800,
+                    levelLoadingMaxRetryTimeout: 8000,
+                    fragLoadingMaxRetry: 8,
+                    fragLoadingRetryDelay: 600,
+                    fragLoadingMaxRetryTimeout: 8000,
+                    manifestLoadingTimeOut: 15000,
+                    levelLoadingTimeOut: 15000,
+                    fragLoadingTimeOut: 25000,
+                    maxBufferLength: 20,
+                    backBufferLength: 30
+                });
+
+                const h = hls;
+
+                h.on(Hls.Events.MANIFEST_PARSED, () => {
+                    startVideo();
+                });
+
+                h.on(Hls.Events.FRAG_LOADED, () => {
+                    netRetries = 0;
+                    mediaRetries = 0;
+                });
+
+                h.on(Hls.Events.ERROR, (event, data) => {
+                    if (!data || !data.fatal) return;
+
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        if (netRetries < MAX_NETWORK_RETRIES) {
+                            netRetries++;
+                            showStatus('Connection issue. Reconnecting (' + netRetries + '/' + MAX_NETWORK_RETRIES + ')...', false);
+                            setTimeout(() => {
+                                if (hls === h) h.startLoad();
+                            }, Math.min(1000 * netRetries, 5000));
+                        } else {
+                            showStatus('Could not load stream. The server may be offline or blocking.', true);
+                            h.destroy();
+                            if (hls === h) hls = null;
+                        }
+                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        if (mediaRetries < MAX_MEDIA_RETRIES) {
+                            mediaRetries++;
+                            if (mediaRetries === 2) h.swapAudioCodec();
+                            h.recoverMediaError();
+                        } else {
+                            showStatus('Playback error occurred in stream.', true);
+                            h.destroy();
+                            if (hls === h) hls = null;
+                        }
+                    } else {
+                        showStatus('Stream playback failed.', true);
+                        h.destroy();
+                        if (hls === h) hls = null;
+                    }
+                });
+
+                h.loadSource(videoSrc);
+                h.attachMedia(video);
+
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Safari / iOS Native support
+                video.src = videoSrc;
+                video.addEventListener('loadedmetadata', () => {
+                    startVideo();
+                });
+                video.onerror = () => {
+                    showStatus('Could not load stream.', true);
+                };
+            } else {
+                showStatus('Your browser does not support HLS playback.', true);
+            }
+        }
+
+        video.onplaying = () => { hideStatus(); };
+        video.onwaiting = () => { if (!video.paused) showStatus('Buffering...', false); };
+        video.oncanplay = () => { hideStatus(); };
+
+        retryBtn.addEventListener('click', () => {
+            netRetries = 0;
+            mediaRetries = 0;
+            initPlayer();
+        });
+
+        // Initialize Player on load
+        initPlayer();
+    </script>
 </body>
 </html>
